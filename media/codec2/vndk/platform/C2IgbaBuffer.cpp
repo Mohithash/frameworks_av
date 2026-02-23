@@ -32,7 +32,7 @@ using ::android::C2AllocatorAhwb;
 namespace {
 
 c2_nsecs_t static constexpr kBlockingFetchTimeoutNs = 5000000000LL; // 5 secs
-c2_nsecs_t static constexpr kSyncFenceWaitNs = (1000000000LL / 60LL); // 60 fps frame secs
+c2_nsecs_t static constexpr kSyncFenceWaitNs = (1000000000LL / 15LL); // Wait time as per min 15 fps
 
 c2_status_t static CreateGraphicBlockFromAhwb(AHardwareBuffer *ahwb,
                                             const std::shared_ptr<C2Allocator> &allocator,
