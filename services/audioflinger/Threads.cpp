@@ -8054,9 +8054,9 @@ void DuplicatingThread::addOutputTrack(IAfPlaybackThread* thread)
     audio_utils::lock_guard _l(mutex());
     // The downstream MixerThread consumes thread->frameCount() amount of frames per mix pass.
     // Adjust for thread->sampleRate() to determine minimum buffer frame count.
-    // Then triple buffer because Threads do not run synchronously and may not be clock locked.
+    // Then buffer 6 times because Threads do not run synchronously and may not be clock locked.
     const size_t frameCount =
-            3 * sourceFramesNeeded(mSampleRate, thread->frameCount(), thread->sampleRate());
+            6 * sourceFramesNeeded(mSampleRate, thread->frameCount(), thread->sampleRate());
     // TODO: Consider asynchronous sample rate conversion to handle clock disparity
     // from different OutputTracks and their associated MixerThreads (e.g. one may
     // nearly empty and the other may be dropping data).

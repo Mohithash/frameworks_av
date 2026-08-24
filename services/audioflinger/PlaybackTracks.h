@@ -488,7 +488,7 @@ private:
     void restartIfDisabled() override;
 
     // Maximum number of pending buffers allocated by OutputTrack::write()
-    static const uint8_t kMaxOverFlowBuffers = 10;
+    static const uint8_t kMaxOverFlowBuffers = 16;
 
     std::deque<Buffer*> mBufferQueue;
     AudioBufferProvider::Buffer mOutBuffer;
