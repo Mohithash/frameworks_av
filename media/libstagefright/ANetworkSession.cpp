@@ -40,7 +40,7 @@ namespace android {
 static const size_t kMaxUDPSize = 1500;
 static const int32_t kMaxUDPRetries = 200;
 
-struct ANetworkSession::NetworkThread : public Thread {
+struct __attribute__((visibility("hidden"))) ANetworkSession::NetworkThread : public Thread {
     explicit NetworkThread(ANetworkSession *session);
 
 protected:
@@ -54,7 +54,7 @@ private:
     DISALLOW_EVIL_CONSTRUCTORS(NetworkThread);
 };
 
-struct ANetworkSession::Session : public RefBase {
+struct __attribute__((visibility("hidden"))) ANetworkSession::Session : public RefBase {
     enum Mode {
         MODE_RTSP,
         MODE_DATAGRAM,

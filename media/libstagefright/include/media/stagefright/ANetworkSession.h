@@ -29,26 +29,35 @@ namespace android {
 
 struct AMessage;
 
+// ANS_EXPORT marks the subset of the ANetworkSession API that must stay in
+// libstagefright's dynamic symbol table for its external consumers
+// (libstagefright_wfd, libmediaplayerservice). The struct itself is given
+// hidden visibility below so that its internal machinery (threadLoop(),
+// the nested NetworkThread/Session structs, createClientOrServer(), etc.)
+// is kept out of .dynsym. This is a ROM-detection hardening measure and
+// must not remove any symbol an external consumer actually imports.
+#define ANS_EXPORT __attribute__((visibility("default")))
+
 // Helper class to manage a number of live sockets (datagram and stream-based)
 // on a single thread. Clients are notified about activity through AMessages.
-struct ANetworkSession : public RefBase {
-    ANetworkSession();
+struct __attribute__((visibility("hidden"))) ANetworkSession : public RefBase {
+    ANS_EXPORT ANetworkSession();
 
-    status_t start();
-    status_t stop();
+    ANS_EXPORT status_t start();
+    ANS_EXPORT status_t stop();
 
     status_t createRTSPClient(
             const char *host, unsigned port, const sp<AMessage> &notify,
             int32_t *sessionID);
 
-    status_t createRTSPServer(
+    ANS_EXPORT status_t createRTSPServer(
             const struct in_addr &addr, unsigned port,
             const sp<AMessage> &notify, int32_t *sessionID);
 
     status_t createUDPSession(
             unsigned localPort, const sp<AMessage> &notify, int32_t *sessionID);
 
-    status_t createUDPSession(
+    ANS_EXPORT status_t createUDPSession(
             unsigned localPort,
             const char *remoteHost,
             unsigned remotePort,
@@ -64,16 +73,16 @@ struct ANetworkSession : public RefBase {
             const sp<AMessage> &notify, int32_t *sessionID);
 
     // active
-    status_t createTCPDatagramSession(
+    ANS_EXPORT status_t createTCPDatagramSession(
             unsigned localPort,
             const char *remoteHost,
             unsigned remotePort,
             const sp<AMessage> &notify,
             int32_t *sessionID);
 
-    status_t destroySession(int32_t sessionID);
+    ANS_EXPORT status_t destroySession(int32_t sessionID);
 
-    status_t sendRequest(
+    ANS_EXPORT status_t sendRequest(
             int32_t sessionID, const void *data, ssize_t size = -1,
             bool timeValid = false, int64_t timeUs = -1ll);
 
