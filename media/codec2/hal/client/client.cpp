@@ -258,15 +258,19 @@ public:
 
     // Initializes mClient if needed, then returns mClient.
     // If the service is unavailable but listed in the manifest, this function
-    // will block indefinitely.
+    // will block indefinitely. It returns nullptr when the service is reached
+    // but cannot be used (for example, it died between registering and
+    // answering); callers must check.
     std::shared_ptr<Codec2Client> getClient() {
         std::scoped_lock lock{mClientMutex};
         if (!mClient) {
             mClient = Codec2Client::_CreateFromIndex(mIndex);
+            if (!mClient) {
+                LOG(ERROR) << "Failed to create Codec2Client to service \""
+                           << GetServiceNames()[mIndex] << "\". (Index = "
+                           << mIndex << ").";
+            }
         }
-        CHECK(mClient) << "Failed to create Codec2Client to service \""
-                       << GetServiceNames()[mIndex] << "\". (Index = "
-                       << mIndex << ").";
         return mClient;
     }
 
@@ -287,9 +291,11 @@ public:
             // Spin until _listComponents() is successful.
             while (true) {
                 std::shared_ptr<Codec2Client> client = getClient();
-                mTraits = client->_listComponents(&success);
-                if (success) {
-                    break;
+                if (client) {
+                    mTraits = client->_listComponents(&success);
+                    if (success) {
+                        break;
+                    }
                 }
                 invalidate();
                 using namespace std::chrono_literals;
@@ -2846,6 +2852,11 @@ std::shared_ptr<Codec2Client> Codec2Client::CreateFromService(
         return nullptr;
     }
     std::shared_ptr<Codec2Client> client = _CreateFromIndex(index);
+    if (!client) {
+        LOG(WARNING) << "CreateFromService(" << name
+                     << ") -- service unavailable.";
+        return nullptr;
+    }
     if (setAsPreferredCodec2ComponentStore) {
         SetPreferredCodec2ComponentStore(
                 std::make_shared<Client2Store>(client));
@@ -2857,11 +2868,13 @@ std::shared_ptr<Codec2Client> Codec2Client::CreateFromService(
 
 std::vector<std::shared_ptr<Codec2Client>> Codec2Client::
         CreateFromAllServices() {
-    std::vector<std::shared_ptr<Codec2Client>> clients(
-            GetServiceNames().size());
-    for (size_t i = GetServiceNames().size(); i > 0; ) {
-        --i;
-        clients[i] = _CreateFromIndex(i);
+    std::vector<std::shared_ptr<Codec2Client>> clients;
+    clients.reserve(GetServiceNames().size());
+    for (size_t i = 0; i < GetServiceNames().size(); ++i) {
+        std::shared_ptr<Codec2Client> client = _CreateFromIndex(i);
+        if (client) {
+            clients.push_back(client);
+        }
     }
     return clients;
 }
@@ -2883,13 +2896,20 @@ std::shared_ptr<Codec2Client> Codec2Client::_CreateFromIndex(size_t index) {
             if (AServiceManager_isDeclared(instanceName.c_str())) {
                 std::shared_ptr<AidlBase> baseStore = AidlBase::fromBinder(
                         ::ndk::SpAIBinder(AServiceManager_waitForService(instanceName.c_str())));
-                CHECK(baseStore) << "Codec2 AIDL service \"" << name << "\""
-                                    " inaccessible for unknown reasons.";
+                if (!baseStore) {
+                    LOG(ERROR) << "Codec2 AIDL service \"" << name << "\""
+                                  " inaccessible for unknown reasons.";
+                    return nullptr;
+                }
                 LOG(VERBOSE) << "Client to Codec2 AIDL service \"" << name << "\" created";
                 std::shared_ptr<c2_aidl::IConfigurable> configurable;
                 ::ndk::ScopedAStatus transStatus = baseStore->getConfigurable(&configurable);
-                CHECK(transStatus.isOk()) << "Codec2 AIDL service \"" << name << "\""
-                                            "does not have IConfigurable.";
+                if (!transStatus.isOk() || !configurable) {
+                    LOG(ERROR) << "Codec2 AIDL service \"" << name << "\""
+                                  " does not have IConfigurable. "
+                                  "(Service may have died.)";
+                    return nullptr;
+                }
                 return std::make_shared<Codec2Client>(baseStore, configurable, index);
             } else {
                 LOG(ERROR) << "Codec2 AIDL service \"" << name << "\" is not declared";
@@ -2900,14 +2920,26 @@ std::shared_ptr<Codec2Client> Codec2Client::_CreateFromIndex(size_t index) {
     } else {
         std::string instanceName = "android.hardware.media.c2/" + name;
         sp<HidlBase> baseStore = HidlBase::getService(name);
-        CHECK(baseStore) << "Codec2 service \"" << name << "\""
-                            " inaccessible for unknown reasons.";
+        if (!baseStore) {
+            LOG(ERROR) << "Codec2 service \"" << name << "\""
+                          " inaccessible for unknown reasons.";
+            return nullptr;
+        }
         LOG(VERBOSE) << "Client to Codec2 service \"" << name << "\" created";
         Return<sp<c2_hidl::IConfigurable>> transResult = baseStore->getConfigurable();
-        CHECK(transResult.isOk()) << "Codec2 service \"" << name << "\""
-                                    "does not have IConfigurable.";
+        if (!transResult.isOk()) {
+            LOG(ERROR) << "Codec2 service \"" << name << "\""
+                          " does not have IConfigurable. "
+                          "(Service may have died.)";
+            return nullptr;
+        }
         sp<c2_hidl::IConfigurable> configurable =
             static_cast<sp<c2_hidl::IConfigurable>>(transResult);
+        if (!configurable) {
+            LOG(ERROR) << "Codec2 service \"" << name << "\""
+                          " returned a null IConfigurable.";
+            return nullptr;
+        }
         return std::make_shared<Codec2Client>(baseStore, configurable, index);
     }
     return nullptr;
@@ -2946,6 +2978,15 @@ c2_status_t Codec2Client::ForAllServices(
         Cache& cache = Cache::List()[index];
         for (size_t tries = numberOfAttempts; tries > 0; --tries) {
             std::shared_ptr<Codec2Client> client{cache.getClient()};
+            if (!client) {
+                LOG(WARNING) << "\"" << key << "\" skipped service \""
+                             << GetServiceNames()[index]
+                             << "\": no client. (Service may have crashed.)"
+                             << (tries > 1 ? " Retrying..." : "");
+                status = C2_TRANSACTION_FAILED;
+                cache.invalidate();
+                continue;
+            }
             status = predicate(client);
             if (status == C2_OK) {
                 std::scoped_lock lock{key2IndexMutex};
@@ -3076,7 +3117,7 @@ std::shared_ptr<Codec2Client::InputSurface> Codec2Client::CreateInputSurface(
     std::shared_ptr<Codec2Client::InputSurface> inputSurface;
     if (index != GetServiceNames().size()) {
         std::shared_ptr<Codec2Client> client = Cache::List()[index].getClient();
-        if (client->createInputSurface(&inputSurface) == C2_OK) {
+        if (client && client->createInputSurface(&inputSurface) == C2_OK) {
             return inputSurface;
         }
     }
@@ -3084,7 +3125,7 @@ std::shared_ptr<Codec2Client::InputSurface> Codec2Client::CreateInputSurface(
                  "from all services...";
     for (Cache& cache : Cache::List()) {
         std::shared_ptr<Codec2Client> client = cache.getClient();
-        if (client->createInputSurface(&inputSurface) == C2_OK) {
+        if (client && client->createInputSurface(&inputSurface) == C2_OK) {
             LOG(INFO) << "CreateInputSurface -- input surface obtained from "
                          "service \"" << client->getServiceName() << "\"";
             return inputSurface;

@@ -250,7 +250,8 @@ struct Codec2Client : public Codec2ConfigurableClient {
             char const* name,
             bool setAsPreferredCodec2ComponentStore = false);
 
-    // Get clients to all services.
+    // Get clients to all services. Services that cannot be reached are
+    // left out, so the result may be shorter than GetServiceNames().
     static std::vector<std::shared_ptr<Codec2Client>> CreateFromAllServices();
 
     // Try to create a component with a given name from all known
